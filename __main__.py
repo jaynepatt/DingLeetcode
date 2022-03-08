@@ -1,4 +1,4 @@
-#!/home/fjjnbb/.local/share/virtualenvs/leetcode-reporter-COM2oRZ4/bin/python3
+#!/root/.virtualenvs/DingLeetcode-ao4TfSK3/bin/python3
 # -*- coding: UTF-8 -*-
 
 from email import header
@@ -29,8 +29,14 @@ class DingTalkBot:
     def send_daily_summary(self, message, phone_number):
         logging.warning(message)
 
-        self.dingtalk.send_markdown(title=f'[{self.keywords}] [{datetime.datetime.now()}]:\n', text=f'> 失业机器人提醒您: 再不刷题厂都没得进了!\n ### 今日总结: @{phone_number}\n\n '+
+        self.dingtalk.send_markdown(title=f'[{self.keywords}] [{datetime.datetime.now()}]:\n', text=f'> 失业机器人提醒您: 再不刷题厂都没得进了!\n ###  @{phone_number} 今日总结:\n\n '+
                     message, is_at_all=False)
+
+    def send_question_status(self, phone_number, question_slug, message):
+        logging.warning(message)
+
+        self.dingtalk.send_markdown(title=f'[{self.keywords}] [{datetime.datetime.now()}]:\n', text=f'###  @{phone_number} 已完成 {question_slug}\n\n '+
+                    message, is_at_all=True)
 
 
 LEETCODE_API_ENDPOINT = 'https://leetcode-cn.com/graphql/'
@@ -49,7 +55,7 @@ class Question:
 
 class LeetcodeHelper:
 
-    def __init__(self, webhook, keywords, easys, mediums, hards, cookies, phone_numbers=[]) -> None:
+    def __init__(self, webhook, keywords, easys, mediums, hards, finished_id, cookies, phone_numbers=[]) -> None:
         self.easys = easys
         self.mediums = mediums
         self.hards = hards
@@ -59,8 +65,10 @@ class LeetcodeHelper:
 
         self.questions = []
         self.questions_id_set = set()
-        self.questions_id_finished_set = set()
+
+        self.questions_id_finished_set = set(finished_id)
         self.__daily_questions_id_set = set()
+        self.__daily_first_finished = set()
         
         self.level_questions = {
             'easy': {
@@ -88,7 +96,10 @@ class LeetcodeHelper:
         self.ding = DingTalkBot(webhook, keywords, phone_numbers)
 
     def find_question_by_id(self, index):
-        return [q for q in self.questions if q.id == index][0]
+        aimed = [q for q in self.questions if q.id == index]
+        
+        if aimed:
+            return aimed[0]
 
 
     def __dsl_query_probelm_set(self, limit, skip):
@@ -144,6 +155,10 @@ class LeetcodeHelper:
     def update_all_questions(self):
         self.__daily_pushs = ""
         self.__daily_questions_id_set = set()
+        self.__daily_first_finished = set()
+        
+        with open('data/finished_id.json', 'w') as f:
+            json.dump(list(self.questions_id_finished_set), f)
 
         res = requests.post(LEETCODE_API_ENDPOINT, headers={
             'Content-type': 'application/json',
@@ -227,7 +242,7 @@ class LeetcodeHelper:
     def push_daily_summary(self):
         for data in self.daily_summary:
             (phone_number, msg) = data
-            print(phone_number)
+
             try:
                 self.ding.send_daily_summary(msg, phone_number)
             except Exception as e:
@@ -295,22 +310,25 @@ class LeetcodeHelper:
     def __get_user_status(self):
         users = []
         for phone_num, cookie in self.user_cookies.items():
-            res = requests.post(LEETCODE_API_ENDPOINT, headers={
-                'Content-type': 'application/json',
-                'cookie': cookie,
-            }, data=self.__dsl_query_user_profile_questions(50, 0))
-            data = json.loads(res.text)['data']['userProfileQuestions']
-            total = int(data['totalNum'])
-            finished = []
-            for q in data['questions']:
-                q_id = q['frontendId']
-                if q_id not in self.__daily_questions_id_set:
-                    continue
+            try:
+                res = requests.post(LEETCODE_API_ENDPOINT, headers={
+                    'Content-type': 'application/json',
+                    'cookie': cookie,
+                }, data=self.__dsl_query_user_profile_questions(50, 0))
+                data = json.loads(res.text)['data']['userProfileQuestions']
+                total = int(data['totalNum'])
+                finished = []
+                for q in data['questions']:
+                    q_id = q['frontendId']
+                    if q_id not in self.__daily_questions_id_set:
+                        continue
 
-                last_submmit = q['lastSubmittedAt']
-                submit_times = q['numSubmitted']
-                finished.append((q_id, last_submmit, submit_times))
-            users.append((phone_num, total, finished))
+                    last_submmit = q['lastSubmittedAt']
+                    submit_times = q['numSubmitted']
+                    finished.append((q_id, last_submmit, submit_times))
+                users.append((phone_num, total, finished))
+            except Exception as e:
+                logging.warning('get user status failed: ', phone_num)
         return users
 
     @property
@@ -327,8 +345,12 @@ class LeetcodeHelper:
             count = 0
             # for debug
             for p in self.__daily_questions_id_set:
-                if finished and p not in [fid[0] for fid in finished]:
-                    tmp += f'[√] Id:{p} 上次提交: {datetime.datetime.fromtimestamp(finished[1]).strftime("%H:%M:%S")} 提交次数: {finished[2]} \n\n'
+                p_finished = None
+                for fid in finished:
+                    if fid[0] == p:
+                        p_finished = fid
+                if finished and p_finished:
+                    tmp += f'[√] Id:{p} 上次提交: {datetime.datetime.fromtimestamp(int(p_finished[1])).strftime("%H:%M:%S")} 提交次数: {p_finished[2]} \n\n'
                     count += 1
                 else:
                     q = self.find_question_by_id(p)
@@ -340,6 +362,110 @@ class LeetcodeHelper:
         
         return self.__daily_summary
 
+    def __dsl_get_submissions(self, offset, limit, question_slug):
+        return json.dumps({
+            'operationName': "submissions",
+            'query': '''
+                query submissions(
+                    $offset: Int!
+                    $limit: Int!
+                    $lastKey: String
+                    $questionSlug: String!
+                    $markedOnly: Boolean
+                    $lang: String
+                ) {
+                submissionList(
+                    offset: $offset
+                    limit: $limit
+                    lastKey: $lastKey
+                    questionSlug: $questionSlug
+                    markedOnly: $markedOnly
+                    lang: $lang
+                ) {
+                    lastKey
+                    hasNext
+                    submissions {
+                        id
+                        statusDisplay
+                        lang
+                        runtime
+                        timestamp
+                        url
+                        isPending
+                        memory
+                        submissionComment {
+                            comment
+                            flagType
+                            __typename
+                        }
+                        __typename
+                        }
+                        __typename
+                    }
+                }
+            ''',
+            'variables': {
+                'offset': offset, 
+                'limit': limit, 
+                'lastKey': None, 
+                'questionSlug': question_slug
+            }
+        })
+
+    def __get_question_submissions(self, question_slug):
+        user_submissions = dict()
+        for phone_num, cookie in self.user_cookies.items():
+            user_submissions[phone_num] = {}
+            while True:
+                res = requests.post(LEETCODE_API_ENDPOINT, headers={
+                    'Content-type': 'application/json',
+                    'cookie': cookie,
+                }, data=self.__dsl_get_submissions(0, 40, question_slug))
+                data = json.loads(res.text)['data']['submissionList']
+
+                submissions = [s for s in data['submissions'] if s['statusDisplay'] == 'Accepted']
+
+                info = {}
+                for s in submissions:
+                    lang = s['lang']
+                    if lang not in info:
+                        info[lang] = {}
+                    if 'stmp' not in info[lang]:
+                        info[lang]['stmp'] = 0
+                    if int(s['timestamp']) > info[lang]['stmp']:
+                        info[lang]['stmp'] = int(s['timestamp'])
+                        info[lang]['time'] = s['runtime']
+                        info[lang]['mem'] = s['memory']
+                        info[lang]['url'] = LEETCODE_QUESTION_BASE_URL+question_slug+s['url']
+
+                user_submissions[phone_num] = info
+                
+                if not data['hasNext']:
+                    break
+        
+        return user_submissions
+
+    def get_question_finished_user(self, question_slug):
+        if question_slug in self.__daily_first_finished:
+            return
+
+        for pnum, data in self.__get_question_submissions(question_slug).items():
+            if len(data.keys()) > 0:
+                msg = ""
+                for lang, info in data.items():
+                    time = info['time']
+                    mem = info['mem']
+                    submit_time = info['stmp']
+                    url = info['url']
+                    msg += f'**Lang:** [{lang}]({url})\t**Time:** {time}\t**Mem:** {mem} --submit at {datetime.datetime.strftime(datetime.datetime.fromtimestamp(submit_time), "%H:%M:%S")}\n\n'
+                # print(msg)
+                self.__daily_first_finished.add(question_slug)
+                self.ding.send_question_status(pnum, question_slug, msg)
+
+    def question_finished(self):
+        for i in self.__daily_questions_id_set:
+            self.get_question_finished_user(self.find_question_by_id(i).title_slug)
+
 if __name__ == "__main__":
 
     with open('config.json', 'r') as f:
@@ -347,8 +473,9 @@ if __name__ == "__main__":
     easys = cfg['easy'] if 'easy' in cfg else 0
     mediums = cfg['medium'] if 'medium' in cfg else 0
     hards = cfg['hards'] if 'hards' in cfg else 0
-
-    l = LeetcodeHelper(cfg['webhook'], cfg['keywords'], easys, mediums, hards, cookies=cfg['cookies'])
+    with open('./data/finished_id.json', 'r') as f:
+        finished_id = json.load(f)
+    l = LeetcodeHelper(cfg['webhook'], cfg['keywords'], easys, mediums, hards, finished_id, cookies=cfg['cookies'])
 
     # # l.get_user_status()
     # l.daily_push
@@ -359,7 +486,18 @@ if __name__ == "__main__":
     schedule.every().day.at(cfg['update']).do(l.update_all_questions)
     for t in cfg['schedule']:
         schedule.every().day.at(t).do(l.push_daily_questions)
+    schedule.every().day.at("15:00").do(l.question_finished)
+    schedule.every().day.at("16:00").do(l.question_finished)
+    schedule.every().day.at("17:00").do(l.question_finished)
+    schedule.every().day.at("19:00").do(l.question_finished)
+    schedule.every().day.at("20:00").do(l.question_finished)
     schedule.every().day.at(cfg['summary']).do(l.push_daily_summary)
-    
+
     while True:
         schedule.run_pending()
+
+    # l.get_question_finished_user('binary-tree-preorder-traversal')
+    # l.get_question_finished_user('masking-personal-information')
+    # l.get_question_finished_user('sfvd7V')
+    
+    
