@@ -1,0 +1,8 @@
+{
+    "webhook": "",
+    "keywords": "",
+    "easy": 1,
+    "medium": 2,
+    "update": "6:00",
+    "schedule": ["14:00", "18:00"]
+}
