@@ -3,6 +3,10 @@
     "keywords": "",
     "easy": 1,
     "medium": 2,
-    "update": "6:00",
-    "schedule": ["14:00", "18:00"]
+    "update": "06:00",
+    "schedule": ["14:00", "18:00"],
+    "summary": "21:00",
+    "cookies": {
+        "phone_number": "cookie",
+    }
 }
