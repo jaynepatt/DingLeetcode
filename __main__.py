@@ -488,11 +488,11 @@ if __name__ == "__main__":
     schedule.every().day.at(cfg['update']).do(l.update_all_questions)
     for t in cfg['schedule']:
         schedule.every().day.at(t).do(l.push_daily_questions)
-    schedule.every().day.at("15:00").do(l.question_finished)
-    schedule.every().day.at("16:00").do(l.question_finished)
-    schedule.every().day.at("17:00").do(l.question_finished)
-    schedule.every().day.at("19:00").do(l.question_finished)
-    schedule.every().day.at("20:00").do(l.question_finished)
+    begin = int(cfg['schedule'][0].split(':')[0])
+    end = int(cfg['summary'].split(':')[0])
+    for i in range(begin+1, end):
+        schedule.every().day.at(f"{i:02d}:00").do(l.question_finished)
+        schedule.every().day.at(f"{i:02d}:30").do(l.question_finished)  
     schedule.every().day.at(cfg['summary']).do(l.push_daily_summary)
 
     while True:
