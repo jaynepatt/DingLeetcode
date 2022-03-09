@@ -43,6 +43,16 @@ class DingTalkBot:
         self.dingtalk.send_markdown(title=f'[{self.keywords}] [{datetime.datetime.now()}]:\n', text=f'###  @{phone_number} 已完成 {question_slug}\n\n '+
                     message, is_at_all=True)
 
+    def send_black_questions(self, phone_number, message):
+        logging.warning(message)
+
+        self.dingtalk.send_markdown(title=f'[{self.keywords}] [{datetime.datetime.now()}]:\n', text=f'###  警告!⚠️ 警告!⚠️ \n\n ### 发现学贼: @{phone_number} 在偷偷刷题!\n\n '+
+                    message, is_at_all=False)
+
+    def send_black_questions_summary(self, phone_number, num):
+
+        self.dingtalk.send_markdown(title=f'[{self.keywords}] [{datetime.datetime.now()}]:\n', text=f'### 学贼检测结束, 今天的学贼之王是: @{phone_number} 偷刷了 {num} 道题!\n\n ', is_at_all=False, at_mobiles=[phone_number])
+
 
 LEETCODE_API_ENDPOINT = 'https://leetcode-cn.com/graphql/'
 LEETCODE_QUESTION_BASE_URL = 'https://leetcode-cn.com/problems/'
@@ -60,7 +70,7 @@ class Question:
 
 class LeetcodeHelper:
 
-    def __init__(self, webhook, keywords, easys, mediums, hards, finished_id, cookies, phone_numbers=[]) -> None:
+    def __init__(self, webhook, keywords, easys=1, mediums=2, hards=0, finished_id=[], cookies=[], phone_numbers=[]) -> None:
         self.easys = easys
         self.mediums = mediums
         self.hards = hards
@@ -337,7 +347,36 @@ class LeetcodeHelper:
             }
         })
 
-    def __get_user_status(self):
+    def push_users_black_questions(self):
+        known_questions = set(list(self.questions_id_finished_set) + list(self.__daily_questions_id_set))
+        users_info = self.__get_user_status(find_all=True)
+        users = {}
+        king = ("", 0)
+        for pn, _, fin in users_info:
+            users[pn] = []
+
+            msg = ''
+            tmp = ''
+            counter = 0
+            for qid, last_submit, _ in fin:
+                yesterday = time.mktime(time.strptime(str(datetime.date.today() - datetime.timedelta(days=1)), '%Y-%m-%d'))
+                if qid not in known_questions and int(last_submit) > int(yesterday):
+                    
+                    q = self.find_question_by_id(qid)
+                    title, title_slug = (q.title, q.title_slug) if q else ('not found', qid)
+                    tmp += f'- {counter}: [{title}]({LEETCODE_QUESTION_BASE_URL}{title_slug})\n\n'
+                    counter += 1
+            msg = f'##### {pn} 今天偷刷了 {counter} 道题: \n\n' + tmp
+
+            if counter > 0:
+                if counter > king[1]:
+                    king = (pn, counter)
+
+                self.ding.send_black_questions(pn, msg)
+
+        self.ding.send_black_questions_summary(king[0], king[1])
+
+    def __get_user_status(self, find_all=False):
         users = []
         for phone_num, cookie in self.user_cookies.items():
             try:
@@ -350,7 +389,8 @@ class LeetcodeHelper:
                 finished = []
                 for q in data['questions']:
                     q_id = q['frontendId']
-                    if q_id not in self.__daily_questions_id_set:
+                    
+                    if not find_all and q_id not in self.__daily_questions_id_set:
                         continue
 
                     last_submmit = q['lastSubmittedAt']
@@ -527,7 +567,7 @@ if __name__ == "__main__":
         schedule.every().day.at(f"{i:02d}:00").do(l.question_finished)
         schedule.every().day.at(f"{i:02d}:30").do(l.question_finished)  
     schedule.every().day.at(cfg['summary']).do(l.push_daily_summary)
+    schedule.every().day.at("22:00").do(l.push_users_black_questions)
 
     while True:
         schedule.run_pending()
-    
