@@ -154,8 +154,9 @@ class LeetcodeHelper:
 
     def update_all_questions(self):
         self.__daily_pushs_msg = ""
-        self.__daily_questions_id_set = set()
         self.__daily_first_finished = set()
+        self.__daily_questions_id_set = set()
+        
         
         with open('data/finished_id.json', 'w') as f:
             json.dump(list(self.questions_id_finished_set), f)
@@ -223,6 +224,15 @@ class LeetcodeHelper:
             time.sleep(30)
             self.push_daily_questions()
 
+    def get_daily_question_id(self):
+
+        for qs in self.__find_daily_push_questions():
+                if len(qs) > 0:
+                    for q in qs:
+                        self.__daily_questions_id_set.add(q.id)
+
+        return self.__daily_questions_id_set
+
     @property
     def daily_push(self):
         if self.__daily_pushs_msg != "":
@@ -230,21 +240,25 @@ class LeetcodeHelper:
         else:
             msg = ''
             i = 0
-            for qs in self.__find_daily_push_questions():
-                if len(qs) > 0:
-                    for q in qs:
-                        self.__daily_questions_id_set.add(q.id)
-                        msg += f'- [{q.difficult}] Id-{q.id}: [{q.title_cn}({q.title})]({LEETCODE_QUESTION_BASE_URL}{q.title_slug}) \n'
-                        msg += f'> tags: {" ".join(q.tags)}\n\n'
-                        i += 1
+            qs = self.get_daily_question_id()
+            
+            try:
+                with open('./data/daily_question.json', 'w') as f:
+                    json.dump(list(qs), f)
+            except Exception as e:
+                logging.warning('failed to write to daily_question.json')
 
+            for q in list(qs):
+                msg += f'- [{q.difficult}] Id-{q.id}: [{q.title_cn}({q.title})]({LEETCODE_QUESTION_BASE_URL}{q.title_slug}) \n'
+                msg += f'> tags: {" ".join(q.tags)}\n\n'
+                i += 1
+            
             self.__daily_pushs_msg = msg
             return msg
 
     def push_daily_summary(self):
         for data in self.daily_summary:
             (phone_number, msg) = data
-
             try:
                 self.ding.send_daily_summary(msg, phone_number)
             except Exception as e:
@@ -460,11 +474,19 @@ class LeetcodeHelper:
                     submit_time = info['stmp']
                     url = info['url']
                     msg += f'**Lang:** [{lang}]({url})\t**Time:** {time}\t**Mem:** {mem} --submit at {datetime.datetime.strftime(datetime.datetime.fromtimestamp(submit_time), "%H:%M:%S")}\n\n'
-                # print(msg)
+                
                 self.__daily_first_finished.add(question_slug)
+                
                 self.ding.send_question_status(pnum, question_slug, msg)
 
     def question_finished(self):
+        if not self.__daily_questions_id_set:
+            try:
+                with open('./data/daily_question_id.json', 'r') as f:
+                    self.__daily_questions_id_set = json.load(f)
+            except Exception as e:
+                logging.warning('error in load daily_question_id.json')
+
         for i in self.__daily_questions_id_set:
             self.get_question_finished_user(self.find_question_by_id(i).title_slug)
 
