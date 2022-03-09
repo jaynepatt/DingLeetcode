@@ -30,7 +30,7 @@ class DingTalkBot:
         logging.warning(message)
 
         self.dingtalk.send_markdown(title=f'[{self.keywords}] [{datetime.datetime.now()}]:\n', text=f'> 失业机器人提醒您: 再不刷题厂都没得进了!\n ###  @{phone_number} 今日总结:\n\n '+
-                    message, is_at_all=False)
+                    message, is_at_all=False, at_mobiles=[phone_number])
 
     def send_question_status(self, phone_number, question_slug, message):
         logging.warning(message)
@@ -89,7 +89,7 @@ class LeetcodeHelper:
             }
         }
 
-        self.__daily_pushs = ""
+        self.__daily_pushs_msg = ""
         self.__daily_summary = []
 
         self.update_all_questions()
@@ -153,7 +153,7 @@ class LeetcodeHelper:
         })
 
     def update_all_questions(self):
-        self.__daily_pushs = ""
+        self.__daily_pushs_msg = ""
         self.__daily_questions_id_set = set()
         self.__daily_first_finished = set()
         
@@ -225,8 +225,8 @@ class LeetcodeHelper:
 
     @property
     def daily_push(self):
-        if self.__daily_pushs != "":
-            return self.__daily_pushs
+        if self.__daily_pushs_msg != "":
+            return self.__daily_pushs_msg
         else:
             msg = ''
             i = 0
@@ -237,6 +237,8 @@ class LeetcodeHelper:
                         msg += f'- [{q.difficult}] Id-{q.id}: [{q.title_cn}({q.title})]({LEETCODE_QUESTION_BASE_URL}{q.title_slug}) \n'
                         msg += f'> tags: {" ".join(q.tags)}\n\n'
                         i += 1
+
+            self.__daily_pushs_msg = msg
             return msg
 
     def push_daily_summary(self):
