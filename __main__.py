@@ -12,6 +12,11 @@ import json
 import schedule
 import time
 import requests
+import os 
+
+pwd = os.getcwd()
+DAILY_QUESTIONS_PATH = os.path.join(pwd, 'data/daily_question_id.json')
+FINISHED_QUESTIONS_PATH = os.path.join(pwd, 'data/finished_id.json')
 
 class DingTalkBot:
 
@@ -92,6 +97,8 @@ class LeetcodeHelper:
         self.__daily_pushs_msg = ""
         self.__daily_summary = []
 
+        self.__is_launch = False
+
         self.update_all_questions()
         self.ding = DingTalkBot(webhook, keywords, phone_numbers)
 
@@ -157,8 +164,7 @@ class LeetcodeHelper:
         self.__daily_first_finished = set()
         self.__daily_questions_id_set = set()
         
-        
-        with open('data/finished_id.json', 'w') as f:
+        with open(FINISHED_QUESTIONS_PATH, 'w') as f:
             json.dump(list(self.questions_id_finished_set), f)
 
         res = requests.post(LEETCODE_API_ENDPOINT, headers={
@@ -224,12 +230,19 @@ class LeetcodeHelper:
             time.sleep(30)
             self.push_daily_questions()
 
-    def get_daily_question_id(self):
+    def set_launch(self):
+        self.__is_launch = True
 
-        for qs in self.__find_daily_push_questions():
+    def get_daily_question_id(self):
+        if self.__is_launch:
+            self.__is_launch = False
+            for qs in self.__find_daily_push_questions():
                 if len(qs) > 0:
                     for q in qs:
                         self.__daily_questions_id_set.add(q.id)
+        elif not self.__daily_questions_id_set:
+            with open(DAILY_QUESTIONS_PATH, 'r') as f:
+                self.__daily_questions_id_set = set(json.load(f))
 
         return self.__daily_questions_id_set
 
@@ -243,12 +256,13 @@ class LeetcodeHelper:
             qs = self.get_daily_question_id()
             
             try:
-                with open('./data/daily_question.json', 'w') as f:
+                with open(DAILY_QUESTIONS_PATH, 'w') as f:
                     json.dump(list(qs), f)
             except Exception as e:
-                logging.warning('failed to write to daily_question.json')
+                logging.warning('failed to write to daily_question_id.json')
 
-            for q in list(qs):
+            for qid in list(qs):
+                q = self.find_question_by_id(qid)
                 msg += f'- [{q.difficult}] Id-{q.id}: [{q.title_cn}({q.title})]({LEETCODE_QUESTION_BASE_URL}{q.title_slug}) \n'
                 msg += f'> tags: {" ".join(q.tags)}\n\n'
                 i += 1
@@ -482,7 +496,7 @@ class LeetcodeHelper:
     def question_finished(self):
         if not self.__daily_questions_id_set:
             try:
-                with open('./data/daily_question_id.json', 'r') as f:
+                with open(DAILY_QUESTIONS_PATH, 'r') as f:
                     self.__daily_questions_id_set = json.load(f)
             except Exception as e:
                 logging.warning('error in load daily_question_id.json')
@@ -490,24 +504,21 @@ class LeetcodeHelper:
         for i in self.__daily_questions_id_set:
             self.get_question_finished_user(self.find_question_by_id(i).title_slug)
 
+CONFIG_PATH = os.path.join(pwd, 'config.json')
+
 if __name__ == "__main__":
 
-    with open('config.json', 'r') as f:
+    with open(CONFIG_PATH, 'r') as f:
         cfg = json.load(f)
     easys = cfg['easy'] if 'easy' in cfg else 0
     mediums = cfg['medium'] if 'medium' in cfg else 0
     hards = cfg['hards'] if 'hards' in cfg else 0
-    with open('./data/finished_id.json', 'r') as f:
+    with open(FINISHED_QUESTIONS_PATH, 'r') as f:
         finished_id = json.load(f)
     l = LeetcodeHelper(cfg['webhook'], cfg['keywords'], easys, mediums, hards, finished_id, cookies=cfg['cookies'])
 
-    # # l.get_user_status()
-    # l.daily_push
-    # l.push_daily_summary()
-    # # l.push_daily_questions()
-    # # l.push_daily_summary()
-
     schedule.every().day.at(cfg['update']).do(l.update_all_questions)
+    schedule.every().day.at(cfg['update']).do(l.set_launch)
     for t in cfg['schedule']:
         schedule.every().day.at(t).do(l.push_daily_questions)
     begin = int(cfg['schedule'][0].split(':')[0])
@@ -519,9 +530,4 @@ if __name__ == "__main__":
 
     while True:
         schedule.run_pending()
-
-    # l.get_question_finished_user('binary-tree-preorder-traversal')
-    # l.get_question_finished_user('masking-personal-information')
-    # l.get_question_finished_user('sfvd7V')
-    
     
