@@ -250,6 +250,11 @@ class LeetcodeHelper:
                 if len(qs) > 0:
                     for q in qs:
                         self.__daily_questions_id_set.add(q.id)
+            try:
+                with open(DAILY_QUESTIONS_PATH, 'w') as f:
+                    json.dump(list(self.__daily_questions_id_set), f)
+            except Exception as e:
+                logging.warning('failed to write to daily_question_id.json')
         elif not self.__daily_questions_id_set:
             with open(DAILY_QUESTIONS_PATH, 'r') as f:
                 self.__daily_questions_id_set = set(json.load(f))
@@ -264,12 +269,6 @@ class LeetcodeHelper:
             msg = ''
             i = 0
             qs = self.get_daily_question_id()
-            
-            try:
-                with open(DAILY_QUESTIONS_PATH, 'w') as f:
-                    json.dump(list(qs), f)
-            except Exception as e:
-                logging.warning('failed to write to daily_question_id.json')
 
             for qid in list(qs):
                 q = self.find_question_by_id(qid)
@@ -567,7 +566,7 @@ if __name__ == "__main__":
         schedule.every().day.at(f"{i:02d}:00").do(l.question_finished)
         schedule.every().day.at(f"{i:02d}:30").do(l.question_finished)  
     schedule.every().day.at(cfg['summary']).do(l.push_daily_summary)
-    schedule.every().day.at("22:00").do(l.push_users_black_questions)
+    # schedule.every().day.at("22:00").do(l.push_users_black_questions)
 
     while True:
         schedule.run_pending()
