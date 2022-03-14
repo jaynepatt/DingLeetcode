@@ -194,6 +194,8 @@ class LeetcodeHelper:
                 q_id = q['frontendQuestionId']
                 if q_id not in self.questions_id_set:
                     new_question = Question(q_id, q['title'], q['titleCn'], q['titleSlug'], tags, q['difficulty'], q['paidOnly'])
+                    if new_question.paid_only:
+                        continue
                     self.questions.append(new_question)
                     self.questions_id_set.add(q_id)
                     level = 'unknown'
@@ -541,7 +543,9 @@ class LeetcodeHelper:
                 logging.warning('error in load daily_question_id.json')
 
         for i in self.__daily_questions_id_set:
-            self.get_question_finished_user(self.find_question_by_id(i).title_slug)
+            q = self.find_question_by_id(i)
+            if q:
+                self.get_question_finished_user(q.title_slug)
 
 CONFIG_PATH = os.path.join(pwd, 'config.json')
 
@@ -566,7 +570,7 @@ if __name__ == "__main__":
         schedule.every().day.at(f"{i:02d}:00").do(l.question_finished)
         schedule.every().day.at(f"{i:02d}:30").do(l.question_finished)  
     schedule.every().day.at(cfg['summary']).do(l.push_daily_summary)
-    # schedule.every().day.at("22:00").do(l.push_users_black_questions)
+    schedule.every().day.at("22:00").do(l.push_users_black_questions)
 
     while True:
         schedule.run_pending()
